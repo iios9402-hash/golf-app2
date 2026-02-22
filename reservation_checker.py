@@ -1,9 +1,13 @@
+import os
 import json
 from weather_engine import run_engine
 from github_persistence import get_file
 from notifier import notify_reservation  # 通知モジュール
 
 def check_reservation():
+
+    # debug: NTFY_TOPIC が取得できているか確認
+    print("DEBUG: NTFY_TOPIC =", os.getenv("NTFY_TOPIC"))
 
     # settings.json取得
     content, _ = get_file()
@@ -26,7 +30,7 @@ def check_reservation():
             print(f"判定: {row['judge']}")
             print(f"理由: {row['reason']}")
 
-            # ◯ 可でもテスト送信するように完全統合
+            # ◯ 可でも強制テスト送信
             notify_reservation(row)
 
             if "×" in row["judge"]:
