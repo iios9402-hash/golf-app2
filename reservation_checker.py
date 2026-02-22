@@ -1,7 +1,7 @@
 import json
 from weather_engine import run_engine
 from github_persistence import get_file
-
+from notifier import notify_reservation  # ← 新規追加
 
 def check_reservation():
 
@@ -28,8 +28,11 @@ def check_reservation():
 
             if "×" in row["judge"]:
                 print("⚠ 警告：プレー不可")
+                notify_reservation(row)  # ← ここで通知
             else:
                 print("◎ プレー可能")
+                # テスト送信したい場合は以下をアンコメント
+                # notify_reservation(row)
 
             return
 
