@@ -1,30 +1,47 @@
 import pandas as pd
+from datetime import datetime, timedelta
 
-def fetch_weather():
-    # 仮データで14日間を生成
-    days = []
+
+# ===============================
+# 1. 仮の14日データ生成（後でAPIに差替）
+# ===============================
+def fetch_weather_data():
+    today = datetime.today()
+    rows = []
+
     for i in range(14):
-        days.append({
-            "date": f"2026-02-{22+i:02d}",
-            "precip_mm": 0 if i % 3 != 0 else 2.0,  # 3の倍数は降水量2mmで不可判定用
-            "wind_ms": 3 if i % 5 != 0 else 6,      # 5の倍数は風速6m/sで不可判定用
-            "weather_text": "晴" if i % 2 == 0 else "雨"
-        })
-    return pd.DataFrame(days)
+        date = today + timedelta(days=i)
 
-def judge_playability(row, day_index):
+        rows.append({
+            "date": date.strftime("%Y-%m-%d"),
+            "weekday": date.strftime("%a"),
+            "precip_mm": 0 if i % 4 != 0 else 2.0,
+            "wind_ms": 3 if i % 6 != 0 else 6.0,
+            "weather_text": "晴" if i % 3 != 0 else "雨"
+        })
+
+    return pd.DataFrame(rows)
+
+
+# ===============================
+# 2. 百十番様判定ロジック
+# ===============================
+def judge_playability(row, index):
+
     rain = row["precip_mm"]
     wind = row["wind_ms"]
     telop = row["weather_text"]
 
-    if day_index <= 9 or day_index == 13:
+    # 通常期間（1-10日目 + 14日目）
+    if index <= 9 or index == 13:
         if rain >= 1.0:
             return "× 不可", "降水量1.0mm以上"
         if wind >= 5.0:
             return "× 不可", "風速5.0m/s以上"
         return "◯ 可", ""
 
-    if 10 <= day_index <= 12:
+    # 警戒期間（11-13日目）
+    if 10 <= index <= 12:
         if rain >= 1.0:
             return "× 不可", "降水量1.0mm以上"
         if wind >= 5.0:
@@ -33,18 +50,30 @@ def judge_playability(row, day_index):
             return "× 不可", "予報文に雨を検出"
         return "◯ 可", ""
 
-def main():
-    df = fetch_weather()
+
+# ===============================
+# 3. 実行関数
+# ===============================
+def run_engine():
+
+    df = fetch_weather_data()
     results = []
+
     for idx, row in df.iterrows():
         judge, reason = judge_playability(row, idx)
+
         results.append({
             "date": row["date"],
+            "weekday": row["weekday"],
             "weather": row["weather_text"],
             "judge": judge,
             "reason": reason
         })
-    print(pd.DataFrame(results))
+
+    return results
+
 
 if __name__ == "__main__":
-    main()
+    output = run_engine()
+    for row in output:
+        print(row)
