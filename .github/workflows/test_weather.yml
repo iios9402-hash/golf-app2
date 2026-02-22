@@ -1,0 +1,22 @@
+name: Test Weather Engine
+
+on:
+  workflow_dispatch:  # 手動で実行可能
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: 3.11
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run weather_engine
+        run: python weather_engine.py
