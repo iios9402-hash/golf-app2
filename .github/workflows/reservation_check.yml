@@ -21,4 +21,5 @@ jobs:
       - name: Run reservation checker
         env:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
         run: python reservation_checker.py
