@@ -25,3 +25,4 @@ jobs:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
         run: python reservation_checker.py
+
