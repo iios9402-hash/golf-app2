@@ -1,6 +1,7 @@
 name: Reservation Check
 
-on: push
+on:
+  workflow_dispatch:
 
 jobs:
   check:
@@ -20,5 +21,9 @@ jobs:
       - name: Run reservation checker
         env:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
-          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          XSERVER_SMTP: ${{ secrets.XSERVER_SMTP }}
+          XSERVER_PORT: ${{ secrets.XSERVER_PORT }}
+          XSERVER_USER: ${{ secrets.XSERVER_USER }}
+          XSERVER_PASS: ${{ secrets.XSERVER_PASS }}
+          TEST_MODE: "1"
         run: python reservation_checker.py
