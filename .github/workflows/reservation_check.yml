@@ -1,6 +1,8 @@
 name: Reservation Check
 
 on:
+  schedule:
+    - cron: '0 20 * * *'   # 日本時間 毎日午前5時
   workflow_dispatch:
 
 jobs:
@@ -8,12 +10,13 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v3
+      - name: Checkout repository
+        uses: actions/checkout@v3
 
       - name: Setup Python
         uses: actions/setup-python@v4
         with:
-          python-version: 3.11
+          python-version: "3.11"
 
       - name: Install dependencies
         run: pip install pandas requests
@@ -25,5 +28,5 @@ jobs:
           XSERVER_PORT: ${{ secrets.XSERVER_PORT }}
           XSERVER_USER: ${{ secrets.XSERVER_USER }}
           XSERVER_PASS: ${{ secrets.XSERVER_PASS }}
-          TEST_MODE: "1"
+          TEST_MODE: "0"
         run: python reservation_checker.py
