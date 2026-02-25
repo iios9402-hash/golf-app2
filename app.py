@@ -62,7 +62,7 @@ def get_weather():
         "https://api.open-meteo.com/v1/forecast"
         f"?latitude={LAT}&longitude={LON}"
         "&daily=weathercode,precipitation_sum,windspeed_10m_max"
-        "&forecast_days=15"  # 今日+翌日14日分
+        "&forecast_days=15"
         "&timezone=Asia/Tokyo"
     )
     r = requests.get(url)
@@ -102,7 +102,7 @@ def judge_weather(df):
             if wind >= 5.0:
                 status = "× 不可"
                 reason.append("風速超過")
-            if rain > 0:  # 雨判定
+            if rain > 0:
                 status = "× 不可"
                 reason.append("警戒期間降雨")
 
@@ -116,19 +116,21 @@ def judge_weather(df):
     return pd.DataFrame(results)
 
 # =========================
-# メール送信（安全化版）
+# メール送信（login安全化版）
 # =========================
 def send_mail(subject, body, recipients):
     if not all([XSERVER_USER, XSERVER_PASS, XSERVER_SMTP]):
         print("メール設定未完了")
         return
 
+    user = XSERVER_USER.strip()
+    password = XSERVER_PASS.strip()
     context = ssl.create_default_context()
     with smtplib.SMTP_SSL(XSERVER_SMTP, 465, context=context) as server:
-        server.login(XSERVER_USER, XSERVER_PASS)
+        server.login(user, password)
         for r in recipients:
-            msg = EmailMessage()  # ループ内で新規作成
-            msg["From"] = XSERVER_USER
+            msg = EmailMessage()
+            msg["From"] = user
             msg["To"] = r
             msg["Subject"] = subject
             msg.set_content(body, charset="utf-8")
