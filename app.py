@@ -2,42 +2,53 @@ import streamlit as st
 import pandas as pd
 import requests
 import datetime
+from bs4 import BeautifulSoup
 import smtplib, ssl
 from email.message import EmailMessage
 import os
-import json
 
 # -------------------------------
 # 設定: GitHub / Xserver
 # -------------------------------
-GITHUB_REPO = "あなたのユーザー名/リポジトリ名"
-GITHUB_FILE = "settings.json"
-GITHUB_TOKEN = os.environ.get("GH_TOKEN")  # GitHub Secrets
 XSERVER_USER = os.environ.get("XSERVER_USER")
 XSERVER_PASS = os.environ.get("XSERVER_PASS")
 XSERVER_SMTP = os.environ.get("XSERVER_SMTP", "sv***.xserver.jp")
 XSERVER_PORT = 465  # SSL
 
+TENKI_URL = "https://tenki.jp/leisure/golf/3/12/644217/week.html"
+
 # -------------------------------
-# 天気取得関数（tenki.jp情報内容に基づく）
+# tenki.jp から HTML 解析
 # -------------------------------
 def get_weather():
-    # tenki.jpのHTML情報を基にスクレイピングする想定（簡略化）
-    # 実運用ではBeautifulSoupなどでHTML解析する
-    # ここでは例としてダミーデータ生成
+    res = requests.get(TENKI_URL)
+    res.encoding = res.apparent_encoding
+    soup = BeautifulSoup(res.text, "html.parser")
+
+    # 予報テーブルを抽出（ページ構造に合わせて調整）
+    # tenki.jpでは日別予報の <tr class="weather-table__body-tr"> に情報がある場合が多い
+    table_rows = soup.select("table.weather-weekly__table tbody tr")
+    
+    dates, weathers, precipitations, winds = [], [], [], []
+
     today = datetime.date.today()
     start = today + datetime.timedelta(days=1)
-    dates = [start + datetime.timedelta(days=i) for i in range(14)]
-    # ダミーデータ（実運用ではtenki.jpの情報を取得）
-    weather_list = ["晴","曇","雨","晴","曇","雨","晴","曇","雨","晴","曇","雨","晴","曇"]
-    precipitation_list = [0.0,0.5,1.2,0.0,0.3,2.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0]
-    wind_list = [2.0,3.0,6.0,2.5,4.0,5.5,1.0,2.0,3.0,2.0,4.5,5.5,3.0,2.0]
+    end = start + datetime.timedelta(days=14)
+
+    # ダミー初期化（実運用ではHTML構造を確認して正確に取得）
+    for i in range(14):
+        day = start + datetime.timedelta(days=i)
+        dates.append(day)
+        # ここでは例として取得できる情報がなければダミー
+        weathers.append("晴")  # 実運用では soup.select + .text で取得
+        precipitations.append(0.0)  # mm
+        winds.append(2.0)  # m/s
 
     df = pd.DataFrame({
         "date": dates,
-        "天気": weather_list,
-        "降水量": precipitation_list,
-        "風速": wind_list
+        "天気": weathers,
+        "降水量": precipitations,
+        "風速": winds
     })
     df["曜日付き日付"] = df["date"].dt.strftime("%m/%d (%a)")
 
@@ -51,11 +62,10 @@ def get_weather():
         text = row["天気"]
         reason = []
         ok = True
-        # 判定
         if (day_index <=10 or day_index==14):
             if rain >= 1.0: reason.append(f"降水量 {rain}mm"); ok=False
             if wind >=5.0: reason.append(f"風速 {wind}m/s"); ok=False
-        else:  # 11-13日目
+        else:
             if rain >=1.0: reason.append(f"降水量 {rain}mm"); ok=False
             if wind >=5.0: reason.append(f"風速 {wind}m/s"); ok=False
             if "雨" in text: reason.append("天気に雨"); ok=False
@@ -67,26 +77,6 @@ def get_weather():
     return df[["曜日付き日付","天気","判定","理由"]]
 
 # -------------------------------
-# GitHub Persistence
-# -------------------------------
-def load_settings():
-    headers = {"Authorization": f"token {GITHUB_TOKEN}"}
-    url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{GITHUB_FILE}"
-    r = requests.get(url, headers=headers)
-    content = json.loads(requests.utils.unquote(r.json()["content"]))
-    return content
-
-def save_settings(data):
-    headers = {"Authorization": f"token {GITHUB_TOKEN}"}
-    url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{GITHUB_FILE}"
-    payload = {
-        "message": "update settings",
-        "content": json.dumps(data),
-        "branch": "main"
-    }
-    requests.put(url, headers=headers, data=json.dumps(payload))
-
-# -------------------------------
 # メール送信（UTF-8対応）
 # -------------------------------
 def send_mail(subject, body, emails):
@@ -94,7 +84,7 @@ def send_mail(subject, body, emails):
     msg["From"] = XSERVER_USER
     msg["To"] = ", ".join(emails)
     msg["Subject"] = subject
-    msg.set_content(body, charset="utf-8")  # ← UTF-8対応
+    msg.set_content(body, charset="utf-8")
 
     context = ssl.create_default_context()
     with smtplib.SMTP_SSL(XSERVER_SMTP, XSERVER_PORT, context=context) as server:
