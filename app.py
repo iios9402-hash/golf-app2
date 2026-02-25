@@ -29,34 +29,13 @@ DEFAULT_EMAIL = "iios9402@yahoo.co.jp"
 # 天気コード → 日本語
 # =========================
 WEATHER_MAP = {
-    0: "晴れ",
-    1: "主に晴れ",
-    2: "部分的に曇り",
-    3: "曇り",
-    45: "霧",
-    48: "霧（凍結）",
-    51: "小雨",
-    53: "中雨",
-    55: "強い雨",
-    56: "小雪混じり雨",
-    57: "強い雪混じり雨",
-    61: "小雨",
-    63: "中雨",
-    65: "強い雨",
-    66: "小雪混じり雨",
-    67: "強い雪混じり雨",
-    71: "小雪",
-    73: "中雪",
-    75: "大雪",
-    77: "霰",
-    80: "雨",
-    81: "強い雨",
-    82: "豪雨",
-    85: "雪",
-    86: "強い雪",
-    95: "雷雨",
-    96: "雷雨 + 雪",
-    99: "暴風雨",
+    0: "晴れ", 1: "主に晴れ", 2: "部分的に曇り", 3: "曇り",
+    45: "霧", 48: "霧（凍結）", 51: "小雨", 53: "中雨", 55: "強い雨",
+    56: "小雪混じり雨", 57: "強い雪混じり雨", 61: "小雨", 63: "中雨",
+    65: "強い雨", 66: "小雪混じり雨", 67: "強い雪混じり雨",
+    71: "小雪", 73: "中雪", 75: "大雪", 77: "霰",
+    80: "雨", 81: "強い雨", 82: "豪雨", 85: "雪", 86: "強い雪",
+    95: "雷雨", 96: "雷雨 + 雪", 99: "暴風雨"
 }
 
 # =========================
@@ -107,7 +86,6 @@ def get_weather():
         raise Exception(f"API異常レスポンス: {data}")
     df = pd.DataFrame(data["daily"])
     df["time"] = pd.to_datetime(df["time"])
-    # 翌日から14日間
     df = df.iloc[1:15].reset_index(drop=True)
     df["weather_text"] = df["weathercode"].map(lambda x: WEATHER_MAP.get(x, "不明"))
     return df
@@ -123,14 +101,14 @@ def judge_weather(df):
         status = "○ 可"
         reason = []
 
-        if i in range(0,10) or i == 13:  # 通常日・14日目
+        if i in range(0,10) or i == 13:
             if rain >= 1.0:
                 status = "× 不可"
                 reason.append("降水量超過")
             if wind >= 5.0:
                 status = "× 不可"
                 reason.append("風速超過")
-        elif i in [10,11,12]:  # 警戒日
+        elif i in [10,11,12]:
             if rain >= 1.0:
                 status = "× 不可"
                 reason.append("降水量超過")
@@ -151,7 +129,7 @@ def judge_weather(df):
     return pd.DataFrame(results)
 
 # =========================
-# 安全なメール送信（Base64 AUTH LOGIN）
+# メール送信（宛先安全化 + Base64 AUTH LOGIN）
 # =========================
 def send_mail(subject, body, recipients):
     if not all([XSERVER_USER, XSERVER_PASS, XSERVER_SMTP]):
@@ -168,12 +146,18 @@ def send_mail(subject, body, recipients):
         server.docmd(base64.b64encode(password.encode("utf-8")).decode())
 
         for r in recipients:
+            r = r.strip()
+            if not r:
+                continue
             msg = EmailMessage()
             msg["From"] = user
             msg["To"] = r
             msg["Subject"] = subject
             msg.set_content(body, charset="utf-8")
-            server.send_message(msg)
+            try:
+                server.send_message(msg)
+            except smtplib.SMTPRecipientsRefused as e:
+                print(f"送信拒否: {r}, エラー: {e}")
 
 # =========================
 # メイン
@@ -183,7 +167,6 @@ def main():
     df_raw = get_weather()
     df = judge_weather(df_raw)
 
-    # GitHub Actions実行時（UIなし）
     if not st.runtime.exists():
         reserved = settings.get("reserved_date")
         emails = settings.get("emails", [DEFAULT_EMAIL])
@@ -194,7 +177,6 @@ def main():
                 send_mail("【警告】予約日プレー不可", df.to_string(), emails)
         return
 
-    # Streamlit UI
     st.set_page_config(layout="wide")
     st.title("矢板カントリークラブ 予約監視")
     st.table(df[["曜日付き日付", "天気", "判定", "理由"]])
