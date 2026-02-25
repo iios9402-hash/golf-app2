@@ -25,7 +25,7 @@ def get_weather():
     lat, lon = 36.8091, 139.9073
     today = datetime.date.today()
     start = today + datetime.timedelta(days=1)  # 翌日から
-    end = start + datetime.timedelta(days=13)  # 14日間
+    end = start + datetime.timedelta(days=14)  # 14日間
 
     url = (
         f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}"
@@ -95,14 +95,14 @@ def save_settings(data):
     requests.put(url, headers=headers, data=json.dumps(payload))
 
 # -------------------------------
-# メール送信
+# メール送信（UTF-8対応）
 # -------------------------------
 def send_mail(subject, body, emails):
     msg = EmailMessage()
     msg["From"] = XSERVER_USER
     msg["To"] = ", ".join(emails)
     msg["Subject"] = subject
-    msg.set_content(body)
+    msg.set_content(body, charset="utf-8")  # ← UTF-8対応
 
     context = ssl.create_default_context()
     with smtplib.SMTP_SSL(XSERVER_SMTP, XSERVER_PORT, context=context) as server:
@@ -113,9 +113,6 @@ def send_mail(subject, body, emails):
 # Streamlit UI
 # -------------------------------
 st.title("矢板カントリークラブ 予約最適化システム")
-
-# 設定読み込み
-# settings = load_settings()  # GitHub 設定読み込み(必要に応じて)
 
 # 予約日設定
 st.subheader("予約日設定")
