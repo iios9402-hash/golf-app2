@@ -39,7 +39,7 @@ WEATHER_MAP = {
 }
 
 # =========================
-# GitHub設定読込
+# GitHub設定読込・保存
 # =========================
 def load_settings():
     if not GH_TOKEN:
@@ -58,25 +58,19 @@ def save_settings(data, sha):
     url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{SETTINGS_FILE}"
     headers = {"Authorization": f"token {GH_TOKEN}"}
     encoded = base64.b64encode(json.dumps(data, indent=2).encode()).decode()
-    payload = {
-        "message": "Update settings",
-        "content": encoded,
-        "branch": BRANCH
-    }
+    payload = {"message": "Update settings", "content": encoded, "branch": BRANCH}
     if sha:
         payload["sha"] = sha
     requests.put(url, headers=headers, json=payload)
 
 # =========================
-# 天気取得
+# 天気取得（翌日から14日間）
 # =========================
 def get_weather():
     url = (
-        "https://api.open-meteo.com/v1/forecast"
-        f"?latitude={LAT}&longitude={LON}"
+        f"https://api.open-meteo.com/v1/forecast?latitude={LAT}&longitude={LON}"
         "&daily=weathercode,precipitation_sum,windspeed_10m_max"
-        "&forecast_days=15"
-        "&timezone=Asia/Tokyo"
+        "&forecast_days=15&timezone=Asia/Tokyo"
     )
     r = requests.get(url)
     if r.status_code != 200:
@@ -86,7 +80,7 @@ def get_weather():
         raise Exception(f"API異常レスポンス: {data}")
     df = pd.DataFrame(data["daily"])
     df["time"] = pd.to_datetime(df["time"])
-    df = df.iloc[1:15].reset_index(drop=True)
+    df = df.iloc[1:15].reset_index(drop=True)  # 翌日から14日間
     df["weather_text"] = df["weathercode"].map(lambda x: WEATHER_MAP.get(x, "不明"))
     return df
 
@@ -101,14 +95,14 @@ def judge_weather(df):
         status = "○ 可"
         reason = []
 
-        if i in range(0,10) or i == 13:
+        if i in range(0,10) or i == 13:  # 通常
             if rain >= 1.0:
                 status = "× 不可"
                 reason.append("降水量超過")
             if wind >= 5.0:
                 status = "× 不可"
                 reason.append("風速超過")
-        elif i in [10,11,12]:
+        elif i in [10,11,12]:  # 警戒
             if rain >= 1.0:
                 status = "× 不可"
                 reason.append("降水量超過")
@@ -150,12 +144,13 @@ def send_mail(subject, body, recipients):
             if not r:
                 continue
             msg = EmailMessage()
-            msg["From"] = user
+            msg["From"] = user  # Xserver メールアカウント必須
             msg["To"] = r
             msg["Subject"] = subject
             msg.set_content(body, charset="utf-8")
             try:
                 server.send_message(msg)
+                print(f"送信成功: {r}")
             except smtplib.SMTPRecipientsRefused as e:
                 print(f"送信拒否: {r}, エラー: {e}")
 
@@ -166,16 +161,6 @@ def main():
     settings, sha = load_settings()
     df_raw = get_weather()
     df = judge_weather(df_raw)
-
-    if not st.runtime.exists():
-        reserved = settings.get("reserved_date")
-        emails = settings.get("emails", [DEFAULT_EMAIL])
-        if reserved:
-            reserved_dt = pd.to_datetime(reserved)
-            match = df[df["date"] == reserved_dt]
-            if not match.empty and "×" in match.iloc[0]["判定"]:
-                send_mail("【警告】予約日プレー不可", df.to_string(), emails)
-        return
 
     st.set_page_config(layout="wide")
     st.title("矢板カントリークラブ 予約監視")
