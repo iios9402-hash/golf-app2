@@ -26,6 +26,40 @@ XSERVER_SMTP = os.getenv("XSERVER_SMTP")
 DEFAULT_EMAIL = "iios9402@yahoo.co.jp"
 
 # =========================
+# 天気コード → 日本語
+# =========================
+WEATHER_MAP = {
+    0: "晴れ",
+    1: "主に晴れ",
+    2: "部分的に曇り",
+    3: "曇り",
+    45: "霧",
+    48: "霧（凍結）",
+    51: "小雨",
+    53: "中雨",
+    55: "強い雨",
+    56: "小雪混じり雨",
+    57: "強い雪混じり雨",
+    61: "小雨",
+    63: "中雨",
+    65: "強い雨",
+    66: "小雪混じり雨",
+    67: "強い雪混じり雨",
+    71: "小雪",
+    73: "中雪",
+    75: "大雪",
+    77: "霰",
+    80: "雨",
+    81: "強い雨",
+    82: "豪雨",
+    85: "雪",
+    86: "強い雪",
+    95: "雷雨",
+    96: "雷雨 + 雪",
+    99: "暴風雨",
+}
+
+# =========================
 # GitHub設定読込
 # =========================
 def load_settings():
@@ -75,6 +109,7 @@ def get_weather():
     df["time"] = pd.to_datetime(df["time"])
     # 翌日から14日間
     df = df.iloc[1:15].reset_index(drop=True)
+    df["weather_text"] = df["weathercode"].map(lambda x: WEATHER_MAP.get(x, "不明"))
     return df
 
 # =========================
@@ -109,14 +144,14 @@ def judge_weather(df):
         results.append({
             "date": row["time"],
             "曜日付き日付": row["time"].strftime("%m/%d(%a)"),
-            "天気": row["weathercode"],
+            "天気": row["weather_text"],
             "判定": status,
             "理由": ",".join(reason) if reason else "基準内"
         })
     return pd.DataFrame(results)
 
 # =========================
-# メール送信（login安全化版）
+# 安全なメール送信（Base64 AUTH LOGIN）
 # =========================
 def send_mail(subject, body, recipients):
     if not all([XSERVER_USER, XSERVER_PASS, XSERVER_SMTP]):
@@ -126,8 +161,12 @@ def send_mail(subject, body, recipients):
     user = XSERVER_USER.strip()
     password = XSERVER_PASS.strip()
     context = ssl.create_default_context()
+
     with smtplib.SMTP_SSL(XSERVER_SMTP, 465, context=context) as server:
-        server.login(user, password)
+        # Base64 AUTH LOGIN
+        server.docmd("AUTH LOGIN", base64.b64encode(user.encode("utf-8")).decode())
+        server.docmd(base64.b64encode(password.encode("utf-8")).decode())
+
         for r in recipients:
             msg = EmailMessage()
             msg["From"] = user
