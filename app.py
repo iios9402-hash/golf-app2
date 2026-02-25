@@ -1,203 +1,155 @@
 import streamlit as st
-import requests
 import pandas as pd
+import requests
 import datetime
+import smtplib, ssl
 import json
-import base64
-import os
-import smtplib
-import ssl
 from email.message import EmailMessage
+import os
 
-# =========================
-# 基本設定
-# =========================
-LAT = 36.8091
-LON = 139.9073
-GITHUB_REPO = "YOUR_GITHUB_ID/YOUR_REPO_NAME"
-SETTINGS_FILE = "settings.json"
-BRANCH = "main"
+# -------------------------------
+# 設定: GitHub / Xserver
+# -------------------------------
+GITHUB_REPO = "あなたのユーザー名/リポジトリ名"
+GITHUB_FILE = "settings.json"
+GITHUB_TOKEN = os.environ.get("GH_TOKEN")  # GitHub Secrets
+XSERVER_USER = os.environ.get("XSERVER_USER")
+XSERVER_PASS = os.environ.get("XSERVER_PASS")
+XSERVER_SMTP = os.environ.get("XSERVER_SMTP", "sv***.xserver.jp")  # Xserver SMTPサーバー
+XSERVER_PORT = 465  # SSL
 
-GH_TOKEN = os.getenv("GH_TOKEN")
-XSERVER_USER = os.getenv("XSERVER_USER")
-XSERVER_PASS = os.getenv("XSERVER_PASS")
-XSERVER_SMTP = os.getenv("XSERVER_SMTP")
-
-DEFAULT_EMAIL = "iios9402@yahoo.co.jp"
-
-# =========================
-# 天気コード → 日本語
-# =========================
-WEATHER_MAP = {
-    0: "晴れ", 1: "主に晴れ", 2: "部分的に曇り", 3: "曇り",
-    45: "霧", 48: "霧（凍結）", 51: "小雨", 53: "中雨", 55: "強い雨",
-    56: "小雪混じり雨", 57: "強い雪混じり雨", 61: "小雨", 63: "中雨",
-    65: "強い雨", 66: "小雪混じり雨", 67: "強い雪混じり雨",
-    71: "小雪", 73: "中雪", 75: "大雪", 77: "霰",
-    80: "雨", 81: "強い雨", 82: "豪雨", 85: "雪", 86: "強い雪",
-    95: "雷雨", 96: "雷雨 + 雪", 99: "暴風雨"
-}
-
-# =========================
-# GitHub設定読込・保存
-# =========================
-def load_settings():
-    if not GH_TOKEN:
-        return {"reserved_date": "", "emails": [DEFAULT_EMAIL]}, None
-    url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{SETTINGS_FILE}"
-    headers = {"Authorization": f"token {GH_TOKEN}"}
-    r = requests.get(url, headers=headers)
-    if r.status_code == 200:
-        content = base64.b64decode(r.json()["content"]).decode()
-        return json.loads(content), r.json()["sha"]
-    return {"reserved_date": "", "emails": [DEFAULT_EMAIL]}, None
-
-def save_settings(data, sha):
-    if not GH_TOKEN:
-        return
-    url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{SETTINGS_FILE}"
-    headers = {"Authorization": f"token {GH_TOKEN}"}
-    encoded = base64.b64encode(json.dumps(data, indent=2).encode()).decode()
-    payload = {"message": "Update settings", "content": encoded, "branch": BRANCH}
-    if sha:
-        payload["sha"] = sha
-    requests.put(url, headers=headers, json=payload)
-
-# =========================
-# 天気取得（翌日から14日間）
-# =========================
+# -------------------------------
+# 天気取得関数
+# -------------------------------
 def get_weather():
+    lat, lon = 36.8091, 139.9073
+    today = datetime.date.today()
+    start = today + datetime.timedelta(days=1)  # 翌日から
+    end = start + datetime.timedelta(days=13)  # 14日間
+
     url = (
-        f"https://api.open-meteo.com/v1/forecast?latitude={LAT}&longitude={LON}"
-        "&daily=weathercode,precipitation_sum,windspeed_10m_max"
-        "&forecast_days=15&timezone=Asia/Tokyo"
+        f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}"
+        f"&daily=weathercode,precipitation_sum,windspeed_10m_max&timezone=Asia/Tokyo"
+        f"&start_date={start}&end_date={end}"
     )
     r = requests.get(url)
-    if r.status_code != 200:
-        raise Exception(f"API接続失敗: {r.status_code}")
-    data = r.json()
-    if "daily" not in data:
-        raise Exception(f"API異常レスポンス: {data}")
-    df = pd.DataFrame(data["daily"])
-    df["time"] = pd.to_datetime(df["time"])
-    df = df.iloc[1:15].reset_index(drop=True)  # 翌日から14日間
-    df["weather_text"] = df["weathercode"].map(lambda x: WEATHER_MAP.get(x, "不明"))
-    return df
+    data = r.json()["daily"]
 
-# =========================
-# 判定ロジック
-# =========================
-def judge_weather(df):
-    results = []
+    df = pd.DataFrame({
+        "date": pd.to_datetime(data["time"]),
+        "天気コード": data["weathercode"],
+        "降水量": data["precipitation_sum"],
+        "風速": data["windspeed_10m_max"],
+    })
+
+    # 天気コードを日本語に変換
+    weather_map = {0:"晴",1:"晴時々曇",2:"曇",3:"雨",45:"霧",48:"霧雨",51:"小雨",53:"小雨",55:"小雨",61:"雨",63:"雨",65:"雨",71:"雪",73:"雪",75:"雪",80:"にわか雨",81:"にわか雨",82:"にわか雨",95:"雷雨",96:"雷雨",99:"雷雨"}
+    df["天気"] = df["天気コード"].map(lambda x: weather_map.get(x, "不明"))
+
+    # 曜日付き日付
+    df["曜日付き日付"] = df["date"].dt.strftime("%m/%d (%a)")
+
+    # 判定・理由
+    judgments = []
+    reasons = []
     for i, row in df.iterrows():
-        rain = row["precipitation_sum"]
-        wind = row["windspeed_10m_max"]
-        status = "○ 可"
+        day_index = i + 1
+        rain = row["降水量"]
+        wind = row["風速"]
+        text = row["天気"]
         reason = []
+        ok = True
+        # 判定
+        if (day_index <=10 or day_index==14):
+            if rain >= 1.0: reason.append(f"降水量 {rain}mm"); ok=False
+            if wind >=5.0: reason.append(f"風速 {wind}m/s"); ok=False
+        else:  # 11-13日目
+            if rain >=1.0: reason.append(f"降水量 {rain}mm"); ok=False
+            if wind >=5.0: reason.append(f"風速 {wind}m/s"); ok=False
+            if "雨" in text: reason.append("天気に雨"); ok=False
+        judgments.append("○ 可" if ok else "× 不可")
+        reasons.append(", ".join(reason))
+    df["判定"] = judgments
+    df["理由"] = reasons
 
-        if i in range(0,10) or i == 13:  # 通常
-            if rain >= 1.0:
-                status = "× 不可"
-                reason.append("降水量超過")
-            if wind >= 5.0:
-                status = "× 不可"
-                reason.append("風速超過")
-        elif i in [10,11,12]:  # 警戒
-            if rain >= 1.0:
-                status = "× 不可"
-                reason.append("降水量超過")
-            if wind >= 5.0:
-                status = "× 不可"
-                reason.append("風速超過")
-            if rain > 0:
-                status = "× 不可"
-                reason.append("警戒期間降雨")
+    return df[["曜日付き日付","天気","判定","理由"]]
 
-        results.append({
-            "date": row["time"],
-            "曜日付き日付": row["time"].strftime("%m/%d(%a)"),
-            "天気": row["weather_text"],
-            "判定": status,
-            "理由": ",".join(reason) if reason else "基準内"
-        })
-    return pd.DataFrame(results)
+# -------------------------------
+# GitHub Persistence
+# -------------------------------
+def load_settings():
+    headers = {"Authorization": f"token {GITHUB_TOKEN}"}
+    url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{GITHUB_FILE}"
+    r = requests.get(url, headers=headers)
+    content = json.loads(requests.utils.unquote(r.json()["content"]))
+    return content
 
-# =========================
-# メール送信（宛先安全化 + Base64 AUTH LOGIN）
-# =========================
-def send_mail(subject, body, recipients):
-    if not all([XSERVER_USER, XSERVER_PASS, XSERVER_SMTP]):
-        print("メール設定未完了")
-        return
+def save_settings(data):
+    headers = {"Authorization": f"token {GITHUB_TOKEN}"}
+    url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{GITHUB_FILE}"
+    payload = {
+        "message": "update settings",
+        "content": json.dumps(data),
+        "branch": "main"
+    }
+    requests.put(url, headers=headers, data=json.dumps(payload))
 
-    user = XSERVER_USER.strip()
-    password = XSERVER_PASS.strip()
+# -------------------------------
+# メール送信
+# -------------------------------
+def send_mail(subject, body, emails):
+    msg = EmailMessage()
+    msg["From"] = XSERVER_USER
+    msg["To"] = ", ".join(emails)
+    msg["Subject"] = subject
+    msg.set_content(body)
+
     context = ssl.create_default_context()
+    with smtplib.SMTP_SSL(XSERVER_SMTP, XSERVER_PORT, context=context) as server:
+        server.login(XSERVER_USER, XSERVER_PASS)
+        server.send_message(msg)
 
-    with smtplib.SMTP_SSL(XSERVER_SMTP, 465, context=context) as server:
-        # Base64 AUTH LOGIN
-        server.docmd("AUTH LOGIN", base64.b64encode(user.encode("utf-8")).decode())
-        server.docmd(base64.b64encode(password.encode("utf-8")).decode())
+# -------------------------------
+# Streamlit UI
+# -------------------------------
+st.title("矢板カントリークラブ 予約最適化システム")
 
-        for r in recipients:
-            r = r.strip()
-            if not r:
-                continue
-            msg = EmailMessage()
-            msg["From"] = user  # Xserver メールアカウント必須
-            msg["To"] = r
-            msg["Subject"] = subject
-            msg.set_content(body, charset="utf-8")
-            try:
-                server.send_message(msg)
-                print(f"送信成功: {r}")
-            except smtplib.SMTPRecipientsRefused as e:
-                print(f"送信拒否: {r}, エラー: {e}")
+# 設定読み込み
+# settings = load_settings()  # GitHub 設定読み込み(必要に応じて)
 
-# =========================
-# メイン
-# =========================
-def main():
-    settings, sha = load_settings()
-    df_raw = get_weather()
-    df = judge_weather(df_raw)
+# 予約日設定
+st.subheader("予約日設定")
+selected_date = st.date_input("予約日を選択", datetime.date.today() + datetime.timedelta(days=1))
 
-    st.set_page_config(layout="wide")
-    st.title("矢板カントリークラブ 予約監視")
-    st.table(df[["曜日付き日付", "天気", "判定", "理由"]])
+# 通知先管理
+st.subheader("通知先管理")
+emails_text = st.text_area("通知先メールアドレス（カンマ区切り）", "iios9402@yahoo.co.jp")
+emails = [e.strip() for e in emails_text.split(",") if e.strip()]
 
-    reserved = settings.get("reserved_date")
-    emails = settings.get("emails", [DEFAULT_EMAIL])
-    if reserved:
-        reserved_dt = pd.to_datetime(reserved)
-        match = df[df["date"] == reserved_dt]
-        if not match.empty:
-            if "×" in match.iloc[0]["判定"]:
-                st.error(f"{reserved} は不可")
-            else:
-                st.success(f"{reserved} は良好")
+# 天気取得
+df = get_weather()
+st.subheader("2週間天気予報")
+st.table(df)
 
-    st.divider()
-    new_date = st.date_input("予約日設定")
-    new_email = st.text_input("追加メール")
+# 判定アラート
+today_row = df[df["曜日付き日付"].str.contains(selected_date.strftime("%m/%d"))]
+if not today_row.empty:
+    st.subheader("予約日判定")
+    row = today_row.iloc[0]
+    if row["判定"].startswith("×"):
+        st.error(f'{row["判定"]} : {row["理由"]}')
+    else:
+        st.success(f'{row["判定"]} : {row["理由"]}')
 
-    if st.button("設定を完全に保存する"):
-        if new_email:
-            emails.append(new_email)
-        settings = {
-            "reserved_date": str(new_date),
-            "emails": list(set(emails))
-        }
-        save_settings(settings, sha)
-        st.success("保存完了")
+# テスト送信ボタン
+st.subheader("メール送信テスト")
+test_email = st.text_input("テスト送信先メールアドレス", "iios9402@yahoo.co.jp")
+if st.button("テスト送信"):
+    try:
+        send_mail("監視状況レポート", df.to_string(), [test_email])
+        st.success("送信成功！メールを確認してください。")
+    except Exception as e:
+        st.error(f"送信失敗: {e}")
 
-    if st.button("現在の監視状況を全宛先へ送信"):
-        send_mail("監視状況レポート", df.to_string(), emails)
-        st.success("送信完了")
-
-    st.divider()
-    st.markdown("[情報源: tenki.jp 矢板カントリークラブ２週間予報](https://tenki.jp/leisure/golf/3/12/644217/week.html)")
-    st.markdown("[公式予約サイトへ](https://reserve.golf-yaita.com)")
-
-if __name__ == "__main__":
-    main()
+# tenki.jp リンク
+st.markdown('[情報源: tenki.jp 矢板カントリークラブ２週間予報](https://tenki.jp/leisure/golf/3/12/644217/week.html)')
