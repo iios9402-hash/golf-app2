@@ -1,0 +1,3 @@
+git add .github/workflows/update_weather.yml
+git commit -m "Add update_weather workflow"
+git push origin main
