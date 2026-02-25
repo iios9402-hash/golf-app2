@@ -73,12 +73,12 @@ def get_weather():
         raise Exception(f"API異常レスポンス: {data}")
     df = pd.DataFrame(data["daily"])
     df["time"] = pd.to_datetime(df["time"])
-    # 翌日以降14日間
+    # 翌日から14日間
     df = df.iloc[1:15].reset_index(drop=True)
     return df
 
 # =========================
-# 判定ロジック
+# 判定ロジック（要件完全準拠）
 # =========================
 def judge_weather(df):
     results = []
@@ -88,18 +88,25 @@ def judge_weather(df):
         status = "○ 可"
         reason = []
 
-        # 数値基準判定
-        if rain >= 1.0:
-            status = "× 不可"
-            reason.append("降水量超過")
-        if wind >= 5.0:
-            status = "× 不可"
-            reason.append("風速超過")
-
-        # 警戒期間（11-13日目）は雨判定
-        if 10 <= i <= 12 and rain > 0:
-            status = "× 不可"
-            reason.append("警戒期間降雨")
+        # 通常日 (1-10日目) & 14日目 (i=13)
+        if i in range(0,10) or i == 13:
+            if rain >= 1.0:
+                status = "× 不可"
+                reason.append("降水量超過")
+            if wind >= 5.0:
+                status = "× 不可"
+                reason.append("風速超過")
+        # 警戒日 (11-13日目, i=10~12)
+        elif i in [10,11,12]:
+            if rain >= 1.0:
+                status = "× 不可"
+                reason.append("降水量超過")
+            if wind >= 5.0:
+                status = "× 不可"
+                reason.append("風速超過")
+            if rain > 0:  # 雨文字判定
+                status = "× 不可"
+                reason.append("警戒期間降雨")
 
         results.append({
             "date": row["time"],
@@ -183,6 +190,7 @@ def main():
 
     st.divider()
     st.markdown("[情報源: tenki.jp 矢板カントリークラブ２週間予報](https://tenki.jp/leisure/golf/3/12/644217/week.html)")
+    st.markdown("[公式予約サイトへ](https://reserve.golf-yaita.com)")
 
 if __name__ == "__main__":
     main()
