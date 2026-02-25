@@ -78,7 +78,7 @@ def get_weather():
     return df
 
 # =========================
-# 判定ロジック（要件完全準拠）
+# 判定ロジック
 # =========================
 def judge_weather(df):
     results = []
@@ -88,23 +88,21 @@ def judge_weather(df):
         status = "○ 可"
         reason = []
 
-        # 通常日 (1-10日目) & 14日目 (i=13)
-        if i in range(0,10) or i == 13:
+        if i in range(0,10) or i == 13:  # 通常日・14日目
             if rain >= 1.0:
                 status = "× 不可"
                 reason.append("降水量超過")
             if wind >= 5.0:
                 status = "× 不可"
                 reason.append("風速超過")
-        # 警戒日 (11-13日目, i=10~12)
-        elif i in [10,11,12]:
+        elif i in [10,11,12]:  # 警戒日
             if rain >= 1.0:
                 status = "× 不可"
                 reason.append("降水量超過")
             if wind >= 5.0:
                 status = "× 不可"
                 reason.append("風速超過")
-            if rain > 0:  # 雨文字判定
+            if rain > 0:  # 雨判定
                 status = "× 不可"
                 reason.append("警戒期間降雨")
 
@@ -118,21 +116,22 @@ def judge_weather(df):
     return pd.DataFrame(results)
 
 # =========================
-# メール送信（UTF-8対応）
+# メール送信（安全化版）
 # =========================
 def send_mail(subject, body, recipients):
     if not all([XSERVER_USER, XSERVER_PASS, XSERVER_SMTP]):
         print("メール設定未完了")
         return
-    msg = EmailMessage()
-    msg["From"] = XSERVER_USER
-    msg["Subject"] = subject
-    msg.set_content(body, charset="utf-8")
+
     context = ssl.create_default_context()
     with smtplib.SMTP_SSL(XSERVER_SMTP, 465, context=context) as server:
         server.login(XSERVER_USER, XSERVER_PASS)
         for r in recipients:
+            msg = EmailMessage()  # ループ内で新規作成
+            msg["From"] = XSERVER_USER
             msg["To"] = r
+            msg["Subject"] = subject
+            msg.set_content(body, charset="utf-8")
             server.send_message(msg)
 
 # =========================
