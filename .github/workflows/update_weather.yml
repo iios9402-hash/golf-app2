@@ -1,5 +1,41 @@
-- name: Commit workflow file
-  run: |
-    git add .github/workflows/update_weather.yml
-    git commit -m "Add update_weather workflow"
-    git push origin main
+name: Update Weather JSON
+
+# トリガー設定
+on:
+  schedule:
+    - cron: "0 20 * * *"  # 毎日 20:00 UTC = 5:00 JST
+  workflow_dispatch:      # 手動実行も可能
+
+jobs:
+  update-weather:
+    runs-on: ubuntu-latest
+
+    steps:
+      # リポジトリをチェックアウト
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      # Python 3.13 をセットアップ
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.13"
+
+      # 依存ライブラリをインストール
+      - name: Install dependencies
+        run: pip install openai pandas requests beautifulsoup4
+
+      # weather.json を生成する Python スクリプトを実行
+      - name: Update weather.json via ChatGPT
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: python update_weather.py
+
+      # 生成した weather.json をコミット & プッシュ
+      - name: Commit and push updated weather.json
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git add weather.json
+          git commit -m "Auto-update weather.json"
+          git push
